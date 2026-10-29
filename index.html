@@ -1,0 +1,1225 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>3D Zombie Survival FPS</title>
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Three.js CDN -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Teko:wght@400;600;700&family=Inter:wght@400;700;900&display=swap');
+    
+    body {
+      margin: 0;
+      overflow: hidden;
+      user-select: none;
+      font-family: 'Inter', sans-serif;
+      background-color: #050508;
+      color: #fff;
+    }
+
+    .font-teko {
+      font-family: 'Teko', sans-serif;
+    }
+
+    #canvas-container {
+      width: 100vw;
+      height: 100vh;
+      position: absolute;
+      top: 0;
+      left: 0;
+      z-index: 1;
+    }
+
+    /* Dynamic Damage Flash */
+    #damage-flash {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      z-index: 10;
+      background: radial-gradient(circle, rgba(255,0,0,0) 40%, rgba(220,38,38,0.8) 100%);
+      opacity: 0;
+      transition: opacity 0.1s ease-out;
+    }
+
+    /* Crosshair */
+    #crosshair {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      pointer-events: none;
+      z-index: 12;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    
+    .crosshair-line {
+      background-color: rgba(255, 255, 255, 0.85);
+      position: absolute;
+      box-shadow: 0 0 4px rgba(0,0,0,0.8);
+    }
+
+    /* Hitmarker Effect */
+    #hitmarker {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%) rotate(45deg);
+      width: 16px;
+      height: 16px;
+      pointer-events: none;
+      z-index: 13;
+      opacity: 0;
+      transition: opacity 0.05s ease-out;
+    }
+    #hitmarker::before, #hitmarker::after {
+      content: '';
+      position: absolute;
+      background: #ef4444;
+      box-shadow: 0 0 6px #ef4444;
+    }
+    #hitmarker::before { top: 7px; left: 0; width: 16px; height: 2px; }
+    #hitmarker::after { left: 7px; top: 0; width: 2px; height: 16px; }
+
+    /* UI Glassmorphism Effect */
+    .hud-card {
+      background: rgba(15, 23, 42, 0.65);
+      backdrop-filter: blur(8px);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.5);
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Three.js Canvas Container -->
+  <div id="canvas-container"></div>
+
+  <!-- Red Damage Overlay -->
+  <div id="damage-flash"></div>
+
+  <!-- HUD Reticle & Hitmarker -->
+  <div id="crosshair">
+    <div class="crosshair-line w-3 h-0.5 -translate-x-3"></div>
+    <div class="crosshair-line w-3 h-0.5 translate-x-3"></div>
+    <div class="crosshair-line h-3 w-0.5 -translate-y-3"></div>
+    <div class="crosshair-line h-3 w-0.5 translate-y-3"></div>
+    <div class="w-1 h-1 bg-red-500 rounded-full shadow-sm"></div>
+  </div>
+  <div id="hitmarker"></div>
+
+  <!-- Game HUD Overlay -->
+  <div id="hud" class="absolute inset-0 pointer-events-none z-20 flex flex-col justify-between p-6 hidden">
+    <!-- Top Bar -->
+    <div class="flex justify-between items-start">
+      <!-- Health Bar -->
+      <div class="hud-card p-4 rounded-xl w-72">
+        <div class="flex justify-between items-center mb-1">
+          <span class="text-xs uppercase tracking-widest text-slate-400 font-bold">HEALTH</span>
+          <span id="health-text" class="font-teko text-2xl text-red-500 leading-none">100 HP</span>
+        </div>
+        <div class="w-full bg-slate-800/80 h-3 rounded-full overflow-hidden p-0.5 border border-slate-700">
+          <div id="health-bar" class="bg-gradient-to-r from-red-600 to-emerald-500 h-full rounded-full transition-all duration-200" style="width: 100%;"></div>
+        </div>
+      </div>
+
+      <!-- Wave Indicator -->
+      <div class="hud-card px-8 py-3 rounded-xl text-center">
+        <div class="text-xs uppercase tracking-widest text-slate-400 font-bold">SURVIVAL WAVE</div>
+        <div id="wave-text" class="font-teko text-5xl text-amber-400 leading-none tracking-wider">WAVE 1</div>
+      </div>
+
+      <!-- Score & Kills -->
+      <div class="hud-card p-4 rounded-xl text-right min-w-[160px]">
+        <div class="text-xs uppercase tracking-widest text-slate-400 font-bold">KILLS</div>
+        <div id="kills-text" class="font-teko text-3xl text-white leading-none mb-1">0</div>
+        <div class="text-xs uppercase tracking-widest text-slate-400 font-bold">SCORE</div>
+        <div id="score-text" class="font-teko text-2xl text-emerald-400 leading-none">0</div>
+      </div>
+    </div>
+
+    <!-- Center Wave Banner Announcement -->
+    <div id="wave-banner" class="self-center text-center transition-all duration-500 opacity-0 transform scale-90">
+      <h2 id="wave-banner-title" class="font-teko text-7xl font-bold tracking-widest text-amber-400 drop-shadow-[0_5px_15px_rgba(245,158,11,0.5)]">WAVE 1</h2>
+      <p id="wave-banner-subtitle" class="text-slate-300 tracking-widest uppercase text-sm font-semibold">GET READY! ZOMBIES INBOUND</p>
+    </div>
+
+    <!-- Bottom Bar: Ammo & Controls -->
+    <div class="flex justify-between items-end">
+      <!-- Controls Hints -->
+      <div class="text-xs text-slate-400 space-y-1">
+        <div><span class="px-1.5 py-0.5 bg-slate-800 rounded border border-slate-700 text-white">WASD</span> 이동</div>
+        <div><span class="px-1.5 py-0.5 bg-slate-800 rounded border border-slate-700 text-white">L-CLICK</span> 사격</div>
+        <div><span class="px-1.5 py-0.5 bg-slate-800 rounded border border-slate-700 text-white">R</span> 재장전</div>
+        <div><span class="px-1.5 py-0.5 bg-slate-800 rounded border border-slate-700 text-white">F</span> 손전등</div>
+      </div>
+
+      <!-- Ammo Display -->
+      <div class="hud-card px-6 py-4 rounded-xl flex items-baseline gap-2">
+        <span id="ammo-current" class="font-teko text-6xl text-white font-bold leading-none">30</span>
+        <span class="text-2xl text-slate-500 font-bold">/</span>
+        <span id="ammo-max" class="font-teko text-3xl text-slate-400 font-bold leading-none">30</span>
+        <div id="reload-indicator" class="hidden ml-3 text-amber-400 text-sm font-bold animate-pulse">RELOADING...</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Start Screen Overlay -->
+  <div id="start-screen" class="absolute inset-0 z-30 flex items-center justify-center bg-slate-950/90 backdrop-blur-md p-6">
+    <div class="max-w-xl w-full text-center space-y-6">
+      <div class="space-y-2">
+        <span class="text-red-500 font-bold tracking-widest text-sm uppercase">3D WebGL FPS Shooter</span>
+        <h1 class="font-teko text-7xl md:text-8xl font-black tracking-wider text-white uppercase drop-shadow-[0_0_25px_rgba(239,68,68,0.6)]">ZOMBIE OUTBREAK</h1>
+        <p class="text-slate-400 text-sm md:text-base">어둠 속에서 몰려오는 좀비 무리를 격퇴하세요. 헤드샷을 노려 살아남으세요.</p>
+      </div>
+
+      <div class="grid grid-cols-2 gap-3 text-left hud-card p-4 rounded-xl text-xs text-slate-300">
+        <div class="flex items-center gap-2"><span class="px-2 py-1 bg-slate-800 rounded text-amber-400 font-bold">WASD</span> 이동 (한글 상태도 지원)</div>
+        <div class="flex items-center gap-2"><span class="px-2 py-1 bg-slate-800 rounded text-amber-400 font-bold">MOUSE</span> 조준 및 시점 변경</div>
+        <div class="flex items-center gap-2"><span class="px-2 py-1 bg-slate-800 rounded text-amber-400 font-bold">LEFT CLICK</span> 무기 사격</div>
+        <div class="flex items-center gap-2"><span class="px-2 py-1 bg-slate-800 rounded text-amber-400 font-bold">R</span> 재장전 (한글 상태도 지원)</div>
+        <div class="flex items-center gap-2"><span class="px-2 py-1 bg-slate-800 rounded text-amber-400 font-bold">F</span> 손전등 On/Off</div>
+        <div class="flex items-center gap-2"><span class="px-2 py-1 bg-slate-800 rounded text-amber-400 font-bold">ESC</span> 일시 정지</div>
+      </div>
+
+      <button id="start-btn" class="w-full py-4 bg-red-600 hover:bg-red-500 text-white font-teko text-3xl font-bold tracking-widest rounded-xl shadow-lg hover:shadow-red-600/50 transition duration-200 transform hover:-translate-y-0.5">
+        게임 시작 (CLICK TO START)
+      </button>
+    </div>
+  </div>
+
+  <!-- Pause Screen Overlay -->
+  <div id="pause-screen" class="absolute inset-0 z-30 flex items-center justify-center bg-slate-950/80 backdrop-blur-md hidden">
+    <div class="text-center space-y-6">
+      <h2 class="font-teko text-7xl font-bold text-white tracking-widest">GAME PAUSED</h2>
+      <p class="text-slate-400 text-sm">화면이나 아래 버튼을 클릭하여 전투를 재개하세요.</p>
+      <button id="resume-btn" class="px-10 py-3 bg-red-600 hover:bg-red-500 text-white font-teko text-2xl font-bold rounded-xl tracking-wider transition">
+        RESUME GAME
+      </button>
+    </div>
+  </div>
+
+  <!-- Game Over Screen Overlay -->
+  <div id="gameover-screen" class="absolute inset-0 z-40 flex items-center justify-center bg-red-950/90 backdrop-blur-lg hidden p-6">
+    <div class="max-w-md w-full hud-card p-8 rounded-2xl text-center space-y-6 border-red-600/30">
+      <div>
+        <h2 class="font-teko text-7xl font-black text-red-500 tracking-wider leading-none mb-1">YOU DIED</h2>
+        <p class="text-slate-400 text-xs uppercase tracking-widest">좀비 무리에게 점령당했습니다</p>
+      </div>
+
+      <div class="space-y-3 py-4 border-y border-slate-800">
+        <div class="flex justify-between items-center text-sm">
+          <span class="text-slate-400">생존 웨이브:</span>
+          <span id="final-wave" class="font-teko text-2xl text-amber-400 font-bold">Wave 1</span>
+        </div>
+        <div class="flex justify-between items-center text-sm">
+          <span class="text-slate-400">처치한 좀비 수:</span>
+          <span id="final-kills" class="font-teko text-2xl text-white font-bold">0</span>
+        </div>
+        <div class="flex justify-between items-center text-sm">
+          <span class="text-slate-400">최종 점수:</span>
+          <span id="final-score" class="font-teko text-2xl text-emerald-400 font-bold">0</span>
+        </div>
+      </div>
+
+      <button id="restart-btn" class="w-full py-4 bg-red-600 hover:bg-red-500 text-white font-teko text-3xl font-bold tracking-widest rounded-xl shadow-lg transition">
+        다시 시도 (RETRY)
+      </button>
+    </div>
+  </div>
+
+  <!-- Main Game Logic Script -->
+  <script>
+    /* =========================================================================
+       1. GAME CONFIGURATION & GLOBALS
+       ========================================================================= */
+    const CONFIG = {
+      player: {
+        speed: 10,
+        height: 1.6,
+        maxHealth: 100,
+        radius: 0.5
+      },
+      weapon: {
+        maxAmmo: 30,
+        reloadTime: 1500, // ms
+        fireRate: 120, // ms between shots
+        damage: 35,
+        headshotMultiplier: 2.5
+      },
+      arenaSize: 70
+    };
+
+    let gameState = 'START'; // 'START', 'PLAYING', 'PAUSED', 'GAMEOVER'
+    let health = CONFIG.player.maxHealth;
+    let ammo = CONFIG.weapon.maxAmmo;
+    let isReloading = false;
+    let lastShotTime = 0;
+    let lastDamageTime = 0; // 체력 자동 회복용 타임스탬프
+    let score = 0;
+    let kills = 0;
+    let currentWave = 1;
+    let zombiesToSpawn = 0;
+    let zombieSpawnInterval = null;
+    let waveInProgress = false;
+
+    // Movement & Controls
+    const keys = { w: false, a: false, s: false, d: false };
+    let yaw = 0;
+    let pitch = 0;
+
+    // Scene setup
+    let scene, camera, renderer, clock, floor;
+    let flashLight, ambientLight;
+    let gunGroup, muzzleFlashMesh, muzzleLight;
+    const zombies = [];
+    const particles = [];
+    const obstacles = [];
+
+    // Web Audio Context Synthesizer
+    let audioCtx = null;
+
+    function initAudio() {
+      if (!audioCtx) {
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      }
+      if (audioCtx.state === 'suspended') {
+        audioCtx.resume();
+      }
+    }
+
+    function playSound(type) {
+      if (!audioCtx) return;
+      
+      const now = audioCtx.currentTime;
+      if (type === 'gunshot') {
+        const bufferSize = audioCtx.sampleRate * 0.15;
+        const buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+        const data = buffer.getChannelData(0);
+        for (let i = 0; i < bufferSize; i++) {
+          data[i] = Math.random() * 2 - 1;
+        }
+
+        const noise = audioCtx.createBufferSource();
+        noise.buffer = buffer;
+
+        const filter = audioCtx.createBiquadFilter();
+        filter.type = 'lowpass';
+        filter.frequency.setValueAtTime(3000, now);
+        filter.frequency.exponentialRampToValueAtTime(100, now + 0.12);
+
+        const gain = audioCtx.createGain();
+        gain.gain.setValueAtTime(0.8, now);
+        gain.gain.exponentialRampToValueAtTime(0.01, now + 0.14);
+
+        noise.connect(filter);
+        filter.connect(gain);
+        gain.connect(audioCtx.destination);
+
+        noise.start(now);
+      } else if (type === 'hit') {
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.type = 'triangle';
+        osc.frequency.setValueAtTime(800, now);
+        osc.frequency.exponentialRampToValueAtTime(200, now + 0.05);
+        gain.gain.setValueAtTime(0.2, now);
+        gain.gain.exponentialRampToValueAtTime(0.01, now + 0.05);
+
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.start(now);
+        osc.stop(now + 0.05);
+      } else if (type === 'reload') {
+        for (let i = 0; i < 2; i++) {
+          const osc = audioCtx.createOscillator();
+          const gain = audioCtx.createGain();
+          osc.type = 'square';
+          osc.frequency.setValueAtTime(i === 0 ? 300 : 500, now + i * 0.2);
+          gain.gain.setValueAtTime(0.1, now + i * 0.2);
+          gain.gain.exponentialRampToValueAtTime(0.01, now + i * 0.2 + 0.08);
+
+          osc.connect(gain);
+          gain.connect(audioCtx.destination);
+          osc.start(now + i * 0.2);
+          osc.stop(now + i * 0.2 + 0.08);
+        }
+      } else if (type === 'player_hit') {
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(120, now);
+        osc.frequency.exponentialRampToValueAtTime(30, now + 0.25);
+        gain.gain.setValueAtTime(0.6, now);
+        gain.gain.exponentialRampToValueAtTime(0.01, now + 0.25);
+
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.start(now);
+        osc.stop(now + 0.25);
+      } else if (type === 'zombie_die') {
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.type = 'sawtooth';
+        osc.frequency.setValueAtTime(150, now);
+        osc.frequency.linearRampToValueAtTime(40, now + 0.4);
+        gain.gain.setValueAtTime(0.3, now);
+        gain.gain.exponentialRampToValueAtTime(0.01, now + 0.4);
+
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.start(now);
+        osc.stop(now + 0.4);
+      }
+    }
+
+    /* =========================================================================
+       2. THREE.JS SCENE SETUP & ENVIRONMENT BUILD
+       ========================================================================= */
+    function initScene() {
+      const container = document.getElementById('canvas-container');
+
+      scene = new THREE.Scene();
+      scene.background = new THREE.Color(0x06080c);
+      scene.fog = new THREE.FogExp2(0x06080c, 0.035);
+
+      camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+      camera.position.set(0, CONFIG.player.height, 0);
+
+      renderer = new THREE.WebGLRenderer({ antialias: true });
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      renderer.shadowMap.enabled = true;
+      renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+      container.appendChild(renderer.domElement);
+
+      clock = new THREE.Clock();
+
+      ambientLight = new THREE.AmbientLight(0x1a2035, 0.4);
+      scene.add(ambientLight);
+
+      // 손전등 밝기 및 범위를 개선 (광도 2.5 -> 5.5, 도달 거리 35 -> 48)
+      flashLight = new THREE.SpotLight(0xfff5ea, 5.5, 48, Math.PI / 5, 0.5, 1);
+      flashLight.position.set(0, 0, 0);
+      flashLight.castShadow = true;
+      flashLight.shadow.mapSize.width = 1024;
+      flashLight.shadow.mapSize.height = 1024;
+      camera.add(flashLight);
+      flashLight.target.position.set(0, 0, -1);
+      camera.add(flashLight.target);
+
+      scene.add(camera);
+
+      buildEnvironment();
+      buildGunModel();
+
+      window.addEventListener('resize', onWindowResize);
+    }
+
+    function createTileTexture() {
+      const canvas = document.createElement('canvas');
+      canvas.width = 256;
+      canvas.height = 256;
+      const ctx = canvas.getContext('2d');
+
+      ctx.fillStyle = '#111622';
+      ctx.fillRect(0, 0, 256, 256);
+
+      ctx.strokeStyle = '#1e293b';
+      ctx.lineWidth = 4;
+      ctx.strokeRect(0, 0, 256, 256);
+
+      ctx.fillStyle = '#1e293b';
+      for (let i = 0; i < 300; i++) {
+        ctx.fillRect(Math.random() * 256, Math.random() * 256, 2, 2);
+      }
+
+      const texture = new THREE.CanvasTexture(canvas);
+      texture.wrapS = THREE.RepeatWrapping;
+      texture.wrapT = THREE.RepeatWrapping;
+      texture.repeat.set(25, 25);
+      return texture;
+    }
+
+    function buildEnvironment() {
+      const halfSize = CONFIG.arenaSize / 2;
+
+      const floorGeo = new THREE.PlaneGeometry(CONFIG.arenaSize, CONFIG.arenaSize);
+      const floorMat = new THREE.MeshStandardMaterial({
+        map: createTileTexture(),
+        roughness: 0.8,
+        metalness: 0.2
+      });
+      floor = new THREE.Mesh(floorGeo, floorMat);
+      floor.rotation.x = -Math.PI / 2;
+      floor.receiveShadow = true;
+      scene.add(floor);
+
+      const wallMat = new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.9 });
+      const wallHeight = 6;
+
+      const walls = [
+        { w: CONFIG.arenaSize, h: wallHeight, d: 1, x: 0, y: wallHeight / 2, z: -halfSize },
+        { w: CONFIG.arenaSize, h: wallHeight, d: 1, x: 0, y: wallHeight / 2, z: halfSize },
+        { w: 1, h: wallHeight, d: CONFIG.arenaSize, x: -halfSize, y: wallHeight / 2, z: 0 },
+        { w: 1, h: wallHeight, d: CONFIG.arenaSize, x: halfSize, y: wallHeight / 2, z: 0 },
+      ];
+
+      walls.forEach(cfg => {
+        const geo = new THREE.BoxGeometry(cfg.w, cfg.h, cfg.d);
+        const mesh = new THREE.Mesh(geo, wallMat);
+        mesh.position.set(cfg.x, cfg.y, cfg.z);
+        mesh.receiveShadow = true;
+        scene.add(mesh);
+        obstacles.push(new THREE.Box3().setFromObject(mesh));
+      });
+
+      const crateMat = new THREE.MeshStandardMaterial({ color: 0x334155, roughness: 0.6 });
+      const pillarMat = new THREE.MeshStandardMaterial({ color: 0x0f172a, roughness: 0.9 });
+
+      for (let i = 0; i < 22; i++) {
+        const isPillar = Math.random() > 0.6;
+        let mesh;
+
+        if (isPillar) {
+          const height = 5 + Math.random() * 2;
+          mesh = new THREE.Mesh(new THREE.CylinderGeometry(0.8, 0.8, height, 12), pillarMat);
+          mesh.position.y = height / 2;
+        } else {
+          const scale = 1.2 + Math.random() * 1.5;
+          mesh = new THREE.Mesh(new THREE.BoxGeometry(scale, scale, scale), crateMat);
+          mesh.position.y = scale / 2;
+        }
+
+        let x, z;
+        do {
+          x = (Math.random() - 0.5) * (CONFIG.arenaSize - 12);
+          z = (Math.random() - 0.5) * (CONFIG.arenaSize - 12);
+        } while (Math.sqrt(x * x + z * z) < 8);
+
+        mesh.position.x = x;
+        mesh.position.z = z;
+        mesh.castShadow = true;
+        mesh.receiveShadow = true;
+        scene.add(mesh);
+
+        obstacles.push(new THREE.Box3().setFromObject(mesh));
+      }
+
+      const lampPositions = [
+        [-18, -18], [18, -18], [-18, 18], [18, 18]
+      ];
+
+      lampPositions.forEach(([lx, lz]) => {
+        const post = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.1, 4), pillarMat);
+        post.position.set(lx, 2, lz);
+        scene.add(post);
+
+        const bulb = new THREE.Mesh(
+          new THREE.SphereGeometry(0.25, 8, 8),
+          new THREE.MeshBasicMaterial({ color: 0xef4444 })
+        );
+        bulb.position.set(lx, 4, lz);
+        scene.add(bulb);
+
+        const pointLight = new THREE.PointLight(0xef4444, 1.2, 12);
+        pointLight.position.set(lx, 3.8, lz);
+        scene.add(pointLight);
+      });
+    }
+
+    function buildGunModel() {
+      gunGroup = new THREE.Group();
+
+      const darkMetal = new THREE.MeshStandardMaterial({ color: 0x111827, roughness: 0.3, metalness: 0.8 });
+      const greyMetal = new THREE.MeshStandardMaterial({ color: 0x374151, roughness: 0.5, metalness: 0.5 });
+      const stockMat = new THREE.MeshStandardMaterial({ color: 0x1f2937, roughness: 0.9 });
+
+      const body = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.12, 0.45), darkMetal);
+      body.position.set(0, 0, 0);
+      gunGroup.add(body);
+
+      const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, 0.4, 8), greyMetal);
+      barrel.rotation.x = Math.PI / 2;
+      barrel.position.set(0, 0.02, -0.4);
+      gunGroup.add(barrel);
+
+      const handguard = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.08, 0.25), stockMat);
+      handguard.position.set(0, 0.01, -0.28);
+      gunGroup.add(handguard);
+
+      const mag = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.2, 0.08), greyMetal);
+      mag.position.set(0, -0.12, -0.05);
+      mag.rotation.x = -0.2;
+      gunGroup.add(mag);
+
+      const grip = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.15, 0.06), stockMat);
+      grip.position.set(0, -0.1, 0.12);
+      grip.rotation.x = -0.4;
+      gunGroup.add(grip);
+
+      const flashGeo = new THREE.ConeGeometry(0.08, 0.2, 8);
+      const flashMat = new THREE.MeshBasicMaterial({ color: 0xfde047, transparent: true, opacity: 0 });
+      muzzleFlashMesh = new THREE.Mesh(flashGeo, flashMat);
+      muzzleFlashMesh.rotation.x = -Math.PI / 2;
+      muzzleFlashMesh.position.set(0, 0.02, -0.62);
+      gunGroup.add(muzzleFlashMesh);
+
+      muzzleLight = new THREE.PointLight(0xfde047, 0, 8);
+      muzzleLight.position.set(0, 0.02, -0.6);
+      gunGroup.add(muzzleLight);
+
+      gunGroup.position.set(0.24, -0.22, -0.45);
+      camera.add(gunGroup);
+    }
+
+    /* =========================================================================
+       3. ZOMBIE PROCEDURAL MESH GENERATOR & AI SYSTEM
+       ========================================================================= */
+    function createZombieMesh(type = 'NORMAL') {
+      const zombieGroup = new THREE.Group();
+
+      let skinColor = 0x2d4c2d;
+      let scale = 1.35; // 일반 좀비 크기 확대 (기존 1.0 -> 1.35)
+      let speed = 3.5;
+      let hp = 100;
+
+      if (type === 'SPRINTER') {
+        skinColor = 0x4a3b2c;
+        scale = 1.1; // 스프린터 크기 확대 (기존 0.85 -> 1.1)
+        speed = 5.8;
+        hp = 60;
+      } else if (type === 'TANK') {
+        skinColor = 0x1c331c;
+        scale = 1.85; // 탱크 좀비 크기 확대 (기존 1.4 -> 1.85)
+        speed = 2.2;
+        hp = 260;
+      }
+
+      const skinMat = new THREE.MeshStandardMaterial({ color: skinColor, roughness: 0.8 });
+      const clothesMat = new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.9 });
+      const eyeMat = new THREE.MeshBasicMaterial({ color: 0xef4444 });
+
+      const torso = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.7, 0.3), clothesMat);
+      torso.position.y = 0.85;
+      torso.castShadow = true;
+      zombieGroup.add(torso);
+
+      const head = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.35, 0.32), skinMat);
+      head.position.set(0, 1.4, 0);
+      head.castShadow = true;
+      head.userData = { isHead: true };
+      zombieGroup.add(head);
+
+      const leftEye = new THREE.Mesh(new THREE.SphereGeometry(0.04, 6, 6), eyeMat);
+      leftEye.position.set(-0.08, 1.43, -0.16);
+      const rightEye = leftEye.clone();
+      rightEye.position.x = 0.08;
+      zombieGroup.add(leftEye);
+      zombieGroup.add(rightEye);
+
+      const armGeo = new THREE.BoxGeometry(0.12, 0.6, 0.12);
+      
+      const leftArm = new THREE.Mesh(armGeo, skinMat);
+      leftArm.position.set(-0.32, 1.05, -0.25);
+      leftArm.rotation.x = -Math.PI / 2.2;
+      leftArm.castShadow = true;
+      zombieGroup.add(leftArm);
+
+      const rightArm = new THREE.Mesh(armGeo, skinMat);
+      rightArm.position.set(0.32, 1.05, -0.25);
+      rightArm.rotation.x = -Math.PI / 2.2;
+      rightArm.castShadow = true;
+      zombieGroup.add(rightArm);
+
+      const legGeo = new THREE.BoxGeometry(0.15, 0.65, 0.15);
+      
+      const leftLeg = new THREE.Mesh(legGeo, clothesMat);
+      leftLeg.position.set(-0.15, 0.32, 0);
+      leftLeg.castShadow = true;
+      zombieGroup.add(leftLeg);
+
+      const rightLeg = new THREE.Mesh(legGeo, clothesMat);
+      rightLeg.position.set(0.15, 0.32, 0);
+      rightLeg.castShadow = true;
+      zombieGroup.add(rightLeg);
+
+      zombieGroup.scale.set(scale, scale, scale);
+
+      return {
+        mesh: zombieGroup,
+        leftArm, rightArm, leftLeg, rightLeg, head, torso,
+        type,
+        hp,
+        maxHp: hp,
+        speed,
+        scale,
+        lastAttackTime: 0,
+        walkAnimTime: Math.random() * 10
+      };
+    }
+
+    function spawnZombie() {
+      let type = 'NORMAL';
+      const rand = Math.random();
+      if (currentWave >= 2 && rand < 0.3) type = 'SPRINTER';
+      else if (currentWave >= 3 && rand > 0.8) type = 'TANK';
+
+      const zombie = createZombieMesh(type);
+
+      const angle = Math.random() * Math.PI * 2;
+      const spawnRadius = CONFIG.arenaSize / 2 - 4;
+      zombie.mesh.position.x = Math.cos(angle) * spawnRadius;
+      zombie.mesh.position.z = Math.sin(angle) * spawnRadius;
+
+      scene.add(zombie.mesh);
+      zombies.push(zombie);
+    }
+
+    /* =========================================================================
+       4. PARTICLE EFFECTS SYSTEM
+       ========================================================================= */
+    function createParticleBurst(pos, colorHex, count = 12) {
+      const particleGeo = new THREE.BufferGeometry();
+      const positions = [];
+      const velocities = [];
+
+      for (let i = 0; i < count; i++) {
+        positions.push(pos.x, pos.y, pos.z);
+        velocities.push(
+          (Math.random() - 0.5) * 4,
+          Math.random() * 3 + 1,
+          (Math.random() - 0.5) * 4
+        );
+      }
+
+      particleGeo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+
+      const particleMat = new THREE.PointsMaterial({
+        color: colorHex,
+        size: 0.12,
+        transparent: true,
+        opacity: 1.0
+      });
+
+      const pSystem = new THREE.Points(particleGeo, particleMat);
+      scene.add(pSystem);
+
+      particles.push({
+        system: pSystem,
+        velocities,
+        life: 0.4
+      });
+    }
+
+    function updateParticles(delta) {
+      for (let i = particles.length - 1; i >= 0; i--) {
+        const p = particles[i];
+        p.life -= delta;
+
+        if (p.life <= 0) {
+          scene.remove(p.system);
+          p.system.geometry.dispose();
+          p.system.material.dispose();
+          particles.splice(i, 1);
+          continue;
+        }
+
+        const posAttr = p.system.geometry.attributes.position;
+        p.system.material.opacity = p.life / 0.4;
+
+        for (let j = 0; j < posAttr.count; j++) {
+          posAttr.setX(j, posAttr.getX(j) + p.velocities[j * 3] * delta);
+          posAttr.setY(j, posAttr.getY(j) + p.velocities[j * 3 + 1] * delta - 9.8 * delta * delta);
+          posAttr.setZ(j, posAttr.getZ(j) + p.velocities[j * 3 + 2] * delta);
+        }
+        posAttr.needsUpdate = true;
+      }
+    }
+
+    /* =========================================================================
+       5. SHOOTING & DAMAGE MECHANICS
+       ========================================================================= */
+    function shoot() {
+      const now = performance.now();
+      if (now - lastShotTime < CONFIG.weapon.fireRate) return;
+      if (isReloading) return;
+
+      if (ammo <= 0) {
+        reload();
+        return;
+      }
+
+      ammo--;
+      lastShotTime = now;
+      updateHUD();
+      playSound('gunshot');
+
+      muzzleFlashMesh.material.opacity = 1.0;
+      muzzleLight.intensity = 4.0;
+      setTimeout(() => {
+        muzzleFlashMesh.material.opacity = 0;
+        muzzleLight.intensity = 0;
+      }, 40);
+
+      gunGroup.position.z = -0.35;
+      gunGroup.rotation.x = 0.15;
+
+      const raycaster = new THREE.Raycaster();
+      raycaster.setFromCamera(new THREE.Vector2(0, 0), camera);
+
+      const zombieTargets = [];
+      zombies.forEach(z => {
+        z.mesh.traverse(child => {
+          if (child.isMesh) {
+            child.userData.parentZombie = z;
+            zombieTargets.push(child);
+          }
+        });
+      });
+
+      const intersects = raycaster.intersectObjects(zombieTargets, false);
+
+      if (intersects.length > 0) {
+        const hit = intersects[0];
+        const zombie = hit.object.userData.parentZombie;
+
+        if (zombie) {
+          const isHeadshot = hit.object.userData.isHead;
+          const damage = isHeadshot ? CONFIG.weapon.damage * CONFIG.weapon.headshotMultiplier : CONFIG.weapon.damage;
+
+          zombie.hp -= damage;
+          playSound('hit');
+          triggerHitmarker();
+
+          createParticleBurst(hit.point, 0x990000, isHeadshot ? 20 : 10);
+
+          const origColor = hit.object.material.color.getHex();
+          hit.object.material.color.setHex(0xffffff);
+          setTimeout(() => {
+            if (hit.object && hit.object.material) {
+              hit.object.material.color.setHex(origColor);
+            }
+          }, 60);
+
+          if (zombie.hp <= 0) {
+            killZombie(zombie);
+          }
+        }
+      } else {
+        const envTargets = [];
+        scene.traverse(child => {
+          if (child.isMesh && child !== floor && !child.userData.parentZombie && child.parent !== gunGroup) {
+            envTargets.push(child);
+          }
+        });
+        const envHits = raycaster.intersectObjects(envTargets, false);
+        if (envHits.length > 0) {
+          createParticleBurst(envHits[0].point, 0xfde047, 6);
+        }
+      }
+    }
+
+    function typeSkinColor(type) {
+      if (type === 'SPRINTER') return 0x4a3b2c;
+      if (type === 'TANK') return 0x1c331c;
+      return 0x2d4c2d;
+    }
+
+    function triggerHitmarker() {
+      const hm = document.getElementById('hitmarker');
+      hm.style.opacity = '1';
+      setTimeout(() => hm.style.opacity = '0', 80);
+    }
+
+    function reload() {
+      if (isReloading || ammo === CONFIG.weapon.maxAmmo) return;
+      isReloading = true;
+      document.getElementById('reload-indicator').classList.remove('hidden');
+      playSound('reload');
+
+      gunGroup.rotation.z = -0.6;
+      gunGroup.rotation.x = -0.3;
+
+      setTimeout(() => {
+        ammo = CONFIG.weapon.maxAmmo;
+        isReloading = false;
+        document.getElementById('reload-indicator').classList.add('hidden');
+        gunGroup.rotation.z = 0;
+        gunGroup.rotation.x = 0;
+        updateHUD();
+      }, CONFIG.weapon.reloadTime);
+    }
+
+    function killZombie(zombie) {
+      playSound('zombie_die');
+      scene.remove(zombie.mesh);
+      
+      const index = zombies.indexOf(zombie);
+      if (index > -1) zombies.splice(index, 1);
+
+      kills++;
+      score += (zombie.type === 'TANK' ? 250 : zombie.type === 'SPRINTER' ? 150 : 100);
+      updateHUD();
+
+      if (zombies.length === 0 && zombiesToSpawn === 0 && waveInProgress) {
+        completeWave();
+      }
+    }
+
+    function takeDamage(amount) {
+      health -= amount;
+      if (health < 0) health = 0;
+      lastDamageTime = performance.now(); // 데미지 입은 시각 저장
+      updateHUD();
+
+      playSound('player_hit');
+
+      const flash = document.getElementById('damage-flash');
+      flash.style.opacity = '0.9';
+      setTimeout(() => flash.style.opacity = '0', 180);
+
+      if (health <= 0) {
+        endGame();
+      }
+    }
+
+    /* =========================================================================
+       6. SURVIVAL WAVE MANAGER
+       ========================================================================= */
+    function startWave(waveNum) {
+      currentWave = waveNum;
+      waveInProgress = true;
+      zombiesToSpawn = 4 + waveNum * 3;
+
+      showWaveBanner(`WAVE ${waveNum}`, `OUTBREAK INTENSIFYING - ${zombiesToSpawn} ZOMBIES INBOUND`);
+
+      updateHUD();
+
+      if (zombieSpawnInterval) clearInterval(zombieSpawnInterval);
+
+      zombieSpawnInterval = setInterval(() => {
+        if (gameState !== 'PLAYING') return;
+        if (zombiesToSpawn > 0) {
+          spawnZombie();
+          zombiesToSpawn--;
+        } else {
+          clearInterval(zombieSpawnInterval);
+        }
+      }, Math.max(800, 2000 - waveNum * 150));
+    }
+
+    function completeWave() {
+      waveInProgress = false;
+      showWaveBanner(`WAVE ${currentWave} CLEARED`, 'STAY ALERT... NEXT WAVE APPROACHING');
+      setTimeout(() => {
+        if (gameState === 'PLAYING') {
+          startWave(currentWave + 1);
+        }
+      }, 4000);
+    }
+
+    function showWaveBanner(title, subtitle) {
+      const banner = document.getElementById('wave-banner');
+      document.getElementById('wave-banner-title').innerText = title;
+      document.getElementById('wave-banner-subtitle').innerText = subtitle;
+
+      banner.classList.remove('opacity-0', 'scale-90');
+      banner.classList.add('opacity-100', 'scale-100');
+
+      setTimeout(() => {
+        banner.classList.remove('opacity-100', 'scale-100');
+        banner.classList.add('opacity-0', 'scale-90');
+      }, 3000);
+    }
+
+    /* =========================================================================
+       7. UPDATE & GAME LOOPS
+       ========================================================================= */
+    // 장애물(상자, 기둥 등) 충돌 체크 함수
+    function checkObstacleCollision(x, z) {
+      const r = CONFIG.player.radius;
+      const playerBox = new THREE.Box3(
+        new THREE.Vector3(x - r, 0, z - r),
+        new THREE.Vector3(x + r, CONFIG.player.height, z + r)
+      );
+      for (let i = 0; i < obstacles.length; i++) {
+        if (obstacles[i].intersectsBox(playerBox)) {
+          return true;
+        }
+      }
+      return false;
+    }
+
+    function updatePlayer(delta) {
+      if (gameState !== 'PLAYING') return;
+
+      // 체력 자동 회복 시스템 (데미지를 입은 지 2.5초 후부터 초당 7 HP 회복)
+      const now = performance.now();
+      if (health < CONFIG.player.maxHealth && (now - lastDamageTime > 2500)) {
+        health = Math.min(CONFIG.player.maxHealth, health + 7 * delta);
+        updateHUD();
+      }
+
+      camera.rotation.order = 'YXZ';
+      camera.rotation.y = yaw;
+      camera.rotation.x = pitch;
+
+      const moveVector = new THREE.Vector3();
+      if (keys.w) moveVector.z -= 1;
+      if (keys.s) moveVector.z += 1;
+      if (keys.a) moveVector.x -= 1;
+      if (keys.d) moveVector.x += 1;
+      moveVector.normalize();
+
+      const forward = new THREE.Vector3(0, 0, -1).applyAxisAngle(new THREE.Vector3(0, 1, 0), yaw);
+      const right = new THREE.Vector3(1, 0, 0).applyAxisAngle(new THREE.Vector3(0, 1, 0), yaw);
+
+      const moveDir = new THREE.Vector3()
+        .addScaledVector(forward, -moveVector.z)
+        .addScaledVector(right, moveVector.x);
+
+      if (moveDir.lengthSq() > 0) {
+        moveDir.normalize().multiplyScalar(CONFIG.player.speed * delta);
+
+        const nextX = camera.position.x + moveDir.x;
+        const nextZ = camera.position.z + moveDir.z;
+
+        const halfSize = CONFIG.arenaSize / 2 - 1.2;
+        // 장애물 및 외벽 충돌 검사 (X, Z 축 독립적 슬라이딩 미끄러짐 지원)
+        if (Math.abs(nextX) < halfSize && !checkObstacleCollision(nextX, camera.position.z)) {
+          camera.position.x = nextX;
+        }
+        if (Math.abs(nextZ) < halfSize && !checkObstacleCollision(camera.position.x, nextZ)) {
+          camera.position.z = nextZ;
+        }
+
+        const walkTime = clock.getElapsedTime() * 12;
+        gunGroup.position.y = -0.22 + Math.sin(walkTime) * 0.015;
+        gunGroup.position.x = 0.24 + Math.cos(walkTime * 0.5) * 0.01;
+      } else {
+        const idleTime = clock.getElapsedTime() * 2;
+        gunGroup.position.y = -0.22 + Math.sin(idleTime) * 0.003;
+      }
+
+      gunGroup.position.z = THREE.MathUtils.lerp(gunGroup.position.z, -0.45, delta * 10);
+      if (!isReloading) {
+        gunGroup.rotation.x = THREE.MathUtils.lerp(gunGroup.rotation.x, 0, delta * 10);
+      }
+    }
+
+    function updateZombies(delta) {
+      const now = performance.now();
+      const playerPos = camera.position;
+
+      zombies.forEach(zombie => {
+        const zPos = zombie.mesh.position;
+        const dir = new THREE.Vector3().subVectors(playerPos, zPos);
+        dir.y = 0;
+        const distance = dir.length();
+
+        if (distance > 1.2 * zombie.scale) {
+          dir.normalize();
+          zPos.addScaledVector(dir, zombie.speed * delta);
+
+          zombie.mesh.rotation.y = Math.atan2(dir.x, dir.z);
+
+          zombie.walkAnimTime += delta * zombie.speed * 2.5;
+          const swing = Math.sin(zombie.walkAnimTime) * 0.6;
+          zombie.leftLeg.rotation.x = swing;
+          zombie.rightLeg.rotation.x = -swing;
+        } else {
+          if (now - zombie.lastAttackTime > 1000) {
+            zombie.lastAttackTime = now;
+            // 좀비 데미지 감소 적용 (탱크: 16, 스프린터: 8, 일반: 6)
+            const dmg = zombie.type === 'TANK' ? 16 : (zombie.type === 'SPRINTER' ? 8 : 6);
+            takeDamage(dmg);
+          }
+        }
+      });
+    }
+
+    function animate() {
+      requestAnimationFrame(animate);
+
+      const delta = clock.getDelta();
+
+      if (gameState === 'PLAYING') {
+        updatePlayer(delta);
+        updateZombies(delta);
+        updateParticles(delta);
+      }
+
+      renderer.render(scene, camera);
+    }
+
+    /* =========================================================================
+       8. CONTROLS & POINTER LOCK
+       ========================================================================= */
+    function requestLock() {
+      if (document.pointerLockElement === document.body) return;
+      try {
+        const promise = document.body.requestPointerLock();
+        if (promise && typeof promise.catch === 'function') {
+          promise.catch((err) => {
+            console.warn('Pointer lock request ignored or throttled:', err.message || err);
+          });
+        }
+      } catch (e) {
+        console.warn('Pointer lock error:', e);
+      }
+    }
+
+    function setupControls() {
+      window.addEventListener('keydown', (e) => {
+        const code = e.code;
+        const k = e.key.toLowerCase();
+        
+        if (code === 'KeyW' || k === 'w' || k === 'ㅈ') keys.w = true;
+        if (code === 'KeyS' || k === 's' || k === 'ㄴ') keys.s = true;
+        if (code === 'KeyA' || k === 'a' || k === 'ㅁ') keys.a = true;
+        if (code === 'KeyD' || k === 'd' || k === 'ㅇ') keys.d = true;
+        if (code === 'KeyR' || k === 'r' || k === 'ㄱ') reload();
+        if (code === 'KeyF' || k === 'f' || k === 'ㄹ') {
+          if (flashLight) flashLight.visible = !flashLight.visible;
+        }
+        if (code === 'Escape' || e.key === 'Escape') {
+          if (gameState === 'PLAYING') pauseGame();
+        }
+      });
+
+      window.addEventListener('keyup', (e) => {
+        const code = e.code;
+        const k = e.key.toLowerCase();
+        
+        if (code === 'KeyW' || k === 'w' || k === 'ㅈ') keys.w = false;
+        if (code === 'KeyS' || k === 's' || k === 'ㄴ') keys.s = false;
+        if (code === 'KeyA' || k === 'a' || k === 'ㅁ') keys.a = false;
+        if (code === 'KeyD' || k === 'd' || k === 'ㅇ') keys.d = false;
+      });
+
+      window.addEventListener('mousemove', (e) => {
+        if (document.pointerLockElement === document.body && gameState === 'PLAYING') {
+          yaw -= e.movementX * 0.0025;
+          pitch -= e.movementY * 0.0025;
+          pitch = Math.max(-Math.PI / 2.2, Math.min(Math.PI / 2.2, pitch));
+        }
+      });
+
+      window.addEventListener('mousedown', (e) => {
+        if (e.button === 0) {
+          if (gameState === 'PLAYING') {
+            if (document.pointerLockElement !== document.body) {
+              requestLock();
+            }
+            shoot();
+          }
+        }
+      });
+
+      document.addEventListener('pointerlockchange', () => {
+        if (document.pointerLockElement !== document.body && gameState === 'PLAYING') {
+          pauseGame();
+        }
+      });
+    }
+
+    /* =========================================================================
+       9. GAME STATE CONTROLLERS
+       ========================================================================= */
+    function startGame() {
+      initAudio();
+      gameState = 'PLAYING';
+      document.getElementById('start-screen').classList.add('hidden');
+      document.getElementById('hud').classList.remove('hidden');
+      requestLock();
+      startWave(1);
+    }
+
+    function pauseGame() {
+      if (gameState !== 'PLAYING') return;
+      gameState = 'PAUSED';
+      document.getElementById('pause-screen').classList.remove('hidden');
+    }
+
+    function resumeGame() {
+      if (gameState !== 'PAUSED') return;
+      gameState = 'PLAYING';
+      document.getElementById('pause-screen').classList.add('hidden');
+      requestLock();
+    }
+
+    function endGame() {
+      gameState = 'GAMEOVER';
+      if (document.pointerLockElement) {
+        document.exitPointerLock();
+      }
+      document.getElementById('final-wave').innerText = `WAVE ${currentWave}`;
+      document.getElementById('final-kills').innerText = kills;
+      document.getElementById('final-score').innerText = score;
+      document.getElementById('gameover-screen').classList.remove('hidden');
+    }
+
+    function restartGame() {
+      health = CONFIG.player.maxHealth;
+      ammo = CONFIG.weapon.maxAmmo;
+      score = 0;
+      kills = 0;
+      currentWave = 1;
+      isReloading = false;
+
+      zombies.forEach(z => scene.remove(z.mesh));
+      zombies.length = 0;
+
+      particles.forEach(p => {
+        scene.remove(p.system);
+        p.system.geometry.dispose();
+        p.system.material.dispose();
+      });
+      particles.length = 0;
+
+      camera.position.set(0, CONFIG.player.height, 0);
+      yaw = 0;
+      pitch = 0;
+
+      document.getElementById('gameover-screen').classList.add('hidden');
+      updateHUD();
+      startGame();
+    }
+
+    function updateHUD() {
+      document.getElementById('health-text').innerText = `${Math.ceil(health)} HP`;
+      document.getElementById('health-bar').style.width = `${Math.max(0, (health / CONFIG.player.maxHealth) * 100)}%`;
+      document.getElementById('ammo-current').innerText = ammo;
+      document.getElementById('ammo-max').innerText = CONFIG.weapon.maxAmmo;
+      document.getElementById('wave-text').innerText = `WAVE ${currentWave}`;
+      document.getElementById('kills-text').innerText = kills;
+      document.getElementById('score-text').innerText = score;
+    }
+
+    function onWindowResize() {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    }
+
+    /* =========================================================================
+       10. INITIALIZATION
+       ========================================================================= */
+    window.onload = function() {
+      initScene();
+      setupControls();
+
+      document.getElementById('start-btn').addEventListener('click', startGame);
+      document.getElementById('resume-btn').addEventListener('click', resumeGame);
+      document.getElementById('restart-btn').addEventListener('click', restartGame);
+
+      animate();
+    };
+  </script>
+</body>
+</html>
